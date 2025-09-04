@@ -11,7 +11,7 @@ import time
 from azurefunctions.extensions.http.fastapi import Request, StreamingResponse
 from fastapi.responses import JSONResponse
 
-# Allow anonymous access
+# Allow anonymous requests
 app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 
 class HeaderCaptureClient(httpx.Client):
@@ -33,8 +33,8 @@ def create_openai_client():
         http_client=http_client,
     ), http_client
 
-# Explicit route with deployment name from environment variable
-deployment_name = os.environ.get("AZURE_DEPLOYMENT_NAME", "default-deployment")
+# Deployment name from environment variable
+deployment_name = os.environ.get("AZURE_DEPLOYMENT_NAME", "external-dekrahr")
 route_path = f"openai/deployments/{deployment_name}/chat/completions"
 
 @app.route(route=route_path, methods=[func.HttpMethod.POST])
@@ -42,17 +42,12 @@ async def aoaifn(req: Request) -> StreamingResponse:
     logging.info('Processing OpenAI proxy request')
     
     try:
-        # Parse request body
         request_body = await req.json()
         logging.info(f"Request body: {json.dumps(request_body)}")
-        
-        # Check for api-version query param
+
         api_version = req.query_params.get("api-version")
         if not api_version:
-            return JSONResponse(
-                content={"error": "api-version is required"},
-                status_code=400
-            )
+            return JSONResponse({"error": "api-version is required"}, status_code=400)
 
         client, http_client = create_openai_client()
         messages = request_body.get("messages", [])
@@ -83,13 +78,9 @@ async def aoaifn(req: Request) -> StreamingResponse:
 
     except Exception as e:
         logging.error(f"Error in proxy function: {str(e)}")
-        return JSONResponse(
-            content={"error": str(e)},
-            status_code=500
-        )
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 def log_to_eventhub(log_data: dict):
-    """Log data to Azure Event Hub"""
     try:
         if "AZURE_EVENTHUB_CONN_STR" not in os.environ:
             logging.info("Event Hub connection string not configured, skipping event hub logging")
@@ -111,7 +102,6 @@ def log_to_eventhub(log_data: dict):
         logging.error(f"Failed to log to Event Hub: {str(e)}")
 
 def process_openai_sync(response, messages, headers, latency_ms):
-    """Process non-streaming response from OpenAI"""
     try:
         content = response.choices[0].message.content if response.choices else ""
 
@@ -134,10 +124,7 @@ def process_openai_sync(response, messages, headers, latency_ms):
 
     except Exception as e:
         logging.error(f"Error processing sync response: {str(e)}")
-        return JSONResponse(
-            content={"error": str(e)},
-            status_code=500
-        )
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 async def process_openai_stream(response, messages, http_client, start_time):
     headers = http_client.last_headers
@@ -207,3 +194,11 @@ async def process_openai_stream(response, messages, http_client, start_time):
             'x-ms-region': headers.get("x-ms-region", "unknown")
         }
     )
+
+# Catch-all route to debug 404s
+@app.route(route="{*any}", methods=[func.HttpMethod.GET, func.HttpMethod.POST])
+async def catch_all(req: Request):
+    return JSONResponse({
+        "message": "Catch-all route hit",
+        "path_received": str(req.url)
+    })
