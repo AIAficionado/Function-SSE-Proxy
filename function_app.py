@@ -32,7 +32,7 @@ def create_openai_client():
         http_client=http_client,
     ), http_client
 
-@app.route(route="openai/deployments/{deployment_name}/chat/completions", methods=[func.HttpMethod.POST])
+@app.route(route="openai/deployments/"+os.environ["AZURE_DEPLOYMENT_NAME"]"/chat/completions", methods=[func.HttpMethod.POST])
 async def aoaifn(req: Request) -> StreamingResponse:
     """
     Azure OpenAI Function that proxies requests to Azure OpenAI API with streaming support.
@@ -242,4 +242,5 @@ async def process_openai_stream(response, messages, http_client, start_time):
             'X-Accel-Buffering': 'no',
             'x-ms-region': headers.get("x-ms-region", "unknown")
         }
+
     )
